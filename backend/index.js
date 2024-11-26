@@ -170,8 +170,8 @@ app.post(routes.packageDeliveryStatusUpdate, AuthenticateToken, async (req, res)
   }
 });
 
-app.listen(process.env.EXPRESS_PORT || 3000, async () => {
-  console.log(`Server is running on port ${process.env.EXPRESS_PORT} with 3000 as init backup`);
+app.listen(process.env.EXPRESS_PORT, async () => {
+  console.log(`Server is running on port ${process.env.EXPRESS_PORT}`);
 
   //seed setup
   //project doesnt require user signup
