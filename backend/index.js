@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from './models/User';
@@ -8,7 +9,6 @@ import Package from './models/Package';
 import uuid4 from 'uuid4';
 import { AuthenticateToken, CreateAccessToken, CreateRefreshToken } from './util';
 import RefreshToken from './models/RefreshToken';
-import { EXPIRY_TIMES } from './consts';
 
 const routes = {
   root: '/',
@@ -23,6 +23,7 @@ dotenv.config();
 connectDB();
 
 const app = express();
+app.use(cors());
 app.use(express.json());       // to support JSON-encoded bodies
 app.use(express.urlencoded()); // to support URL-encoded bodies
 
@@ -170,7 +171,7 @@ app.post(routes.packageDeliveryStatusUpdate, AuthenticateToken, async (req, res)
 });
 
 app.listen(process.env.EXPRESS_PORT || 3000, async () => {
-  console.log(`Server is running on port ${process.env.EXPRESS_PORT} with backup 3000`);
+  console.log(`Server is running on port ${process.env.EXPRESS_PORT} with 3000 as init backup`);
 
   //seed setup
   //project doesnt require user signup
