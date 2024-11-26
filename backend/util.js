@@ -1,7 +1,38 @@
 import jwt from "jsonwebtoken";
 import RefreshToken from "./models/RefreshToken";
-import express from "express";
 import { body, validationResult } from "express-validator";
+import { EXPIRY_TIMES } from "./consts";
+
+export function CreateAccessToken(user) {
+  return jwt.sign({
+    id: user.id,
+    username: user.username,
+  }, process.env.JWT_SECRET, {
+    expiresIn: EXPIRY_TIMES.ACCESS_TOKEN
+  });
+}
+
+export async function CreateRefreshToken(user) {
+  // Remove existing refresh tokens for this user
+  await RefreshToken.deleteMany({ user: user.id });
+
+  const refreshToken = jwt.sign(
+    {
+      id: user.id,
+      username: user.username
+    },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: EXPIRY_TIMES.REFRESH_TOKEN }
+  );
+
+  await RefreshToken.create({
+    user: user.id,
+    token: refreshToken,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+  });
+
+  return refreshToken;
+}
 
 export function AuthenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
@@ -21,25 +52,6 @@ export function AuthenticateToken(req, res, next) {
     req.user = user;
     next();
   });
-}
-
-export async function CreateRefreshToken(user) {
-  // Remove existing refresh tokens for this user
-  await RefreshToken.deleteMany({ user: user.id });
-
-  const refreshToken = jwt.sign(
-    { id: user.id },
-    process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: "7d" }
-  );
-
-  await RefreshToken.create({
-    user: user.id,
-    token: refreshToken,
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-  });
-
-  return refreshToken;
 }
 
 function validateRequest(req, res, next) {
