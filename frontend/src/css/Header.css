@@ -1,0 +1,17 @@
+.header {
+    position: sticky;
+    top: 0;
+    padding: 10px 16px;
+    background: #555;
+    color: #f1f1f1;
+}
+
+.header-inner {
+    display: flex;
+    justify-content: space-between;
+}
+
+.header-inner-right {
+    display: flex;
+    gap: 5vw;
+}

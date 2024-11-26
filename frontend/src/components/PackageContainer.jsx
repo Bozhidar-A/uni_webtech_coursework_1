@@ -1,7 +1,6 @@
 import "../css/PKG.css"
 
 export default function PackageContainer({ pkg, HandleUpdateDeliveryStatus }) {
-    console.log(HandleUpdateDeliveryStatus);
 
     return (
         <div className="parent">

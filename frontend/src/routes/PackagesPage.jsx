@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import API_OBJ from "../../util/axiosInstance";
 import { routes } from "../../util/consts";
 import PackageContainer from "../components/PackageContainer";
+import Header from "../components/Header";
 
 export default function PackagesPage() {
     const [packages, setPackages] = useState([]);
@@ -42,6 +43,7 @@ export default function PackagesPage() {
 
     return (
         <div>
+            <Header />
             <h1>Packages</h1>
             <ul>
                 {packages.map((pkg) => (
