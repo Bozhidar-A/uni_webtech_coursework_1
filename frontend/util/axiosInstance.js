@@ -39,7 +39,7 @@ API_OBJ.interceptors.response.use(
         }
 
         // If the error is due to an unauthorized request and we haven't already tried to refresh
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry) {
             // Prevent infinite refresh loops
             if (originalRequest._refreshAttempted) {
                 // If refresh has already been attempted, force logout
