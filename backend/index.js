@@ -1,19 +1,20 @@
 import express from 'express';
+import cors from 'cors';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { verify } from 'jsonwebtoken';
 import User from './models/User';
 import dotenv from 'dotenv';
 import connectDB from './db';
 import Package from './models/Package';
 import uuid4 from 'uuid4';
-import { AuthenticateToken, CreateAccessToken, CreateRefreshToken } from './util';
+import { AuthenticateToken, CreateAccessToken, CreateRefreshToken, RefreshTokenValidation } from './util';
 import RefreshToken from './models/RefreshToken';
-import { EXPIRY_TIMES } from './consts';
 
 const routes = {
-  root: '/',
+  health: '/health',
   login: '/login',
   refreshToken: '/refresh-token',
+  verifyToken: '/verify-token',
   packages: '/packages',
   packageDeliveryStatusUpdate: '/packages/update-delivery-status',
 }
@@ -23,17 +24,19 @@ dotenv.config();
 connectDB();
 
 const app = express();
+app.use(cors());
 app.use(express.json());       // to support JSON-encoded bodies
 app.use(express.urlencoded()); // to support URL-encoded bodies
 
-app.get(routes.root, (req, res) => {
-  res.send("API Online");
+app.get(routes.health, (req, res) => {
+  res.status(200).json({ message: "API is healthy" });
 });
 
 app.post(routes.login, async (req, res) => {
   try {
     //destrcut user
     const { username, password } = req.body;
+    console.log("LOGIN: ", username, password);
 
     //exists?
     const user = await User.findOne({
@@ -58,7 +61,8 @@ app.post(routes.login, async (req, res) => {
 
     res.status(200).json({
       accessToken: accessToken,
-      refreshToken: refreshToken
+      refreshToken: refreshToken,
+      username: user.username
     });
   } catch (error) {
     console.log("INTERNAL SERVER ERROR: ", error);
@@ -66,7 +70,7 @@ app.post(routes.login, async (req, res) => {
   }
 });
 
-app.post(routes.refreshToken, async (req, res) => {
+app.post(routes.refreshToken, RefreshTokenValidation, async (req, res) => {
   const { refreshToken } = req.body;
 
   try {
@@ -104,12 +108,18 @@ app.post(routes.refreshToken, async (req, res) => {
 
     res.json({
       accessToken: newAccessToken,
-      refreshToken: newRefreshToken
+      refreshToken: newRefreshToken,
+      username: user.username
     });
 
   } catch (error) {
     return res.status(403).json({ message: 'Invalid refresh token' });
   }
+});
+
+app.get(routes.verifyToken, AuthenticateToken, async (req, res) => {
+  //middleware AuthenticateToken will verify token
+  res.status(200).json({ message: "Token is valid" });
 });
 
 app.get(routes.packages, AuthenticateToken, async (req, res) => {
@@ -169,8 +179,8 @@ app.post(routes.packageDeliveryStatusUpdate, AuthenticateToken, async (req, res)
   }
 });
 
-app.listen(process.env.EXPRESS_PORT || 3000, async () => {
-  console.log(`Server is running on port ${process.env.EXPRESS_PORT} with backup 3000`);
+app.listen(process.env.EXPRESS_PORT, async () => {
+  console.log(`Server is running on port ${process.env.EXPRESS_PORT}`);
 
   //seed setup
   //project doesnt require user signup
