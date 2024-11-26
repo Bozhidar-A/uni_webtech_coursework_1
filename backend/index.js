@@ -11,7 +11,7 @@ import { AuthenticateToken, CreateAccessToken, CreateRefreshToken } from './util
 import RefreshToken from './models/RefreshToken';
 
 const routes = {
-  root: '/',
+  health: '/health',
   login: '/login',
   refreshToken: '/refresh-token',
   packages: '/packages',
@@ -27,8 +27,8 @@ app.use(cors());
 app.use(express.json());       // to support JSON-encoded bodies
 app.use(express.urlencoded()); // to support URL-encoded bodies
 
-app.get(routes.root, (req, res) => {
-  res.send("API Online");
+app.get(routes.health, (req, res) => {
+  res.status(200).json({ message: "API is healthy" });
 });
 
 app.post(routes.login, async (req, res) => {
