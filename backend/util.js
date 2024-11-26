@@ -81,7 +81,7 @@ export const userLoginValidation = [
   validateRequest,
 ];
 
-export const refreshTokenValidation = [
+export const RefreshTokenValidation = [
   body("refreshToken").isString().withMessage("Refresh token must be a string"),
 
   validateRequest,

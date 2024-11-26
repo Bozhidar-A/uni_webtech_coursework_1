@@ -1,163 +1,126 @@
 import axios from "axios";
+import { routes } from "./consts";
 
-export var isAPIDown = false;
+const API_OBJ = axios.create({
+    baseURL: `${import.meta.env.VITE_API_URL}:${import.meta.env.VITE_API_PORT}`,
+    timeout: 10000 // 10 seconds timeout
+});
 
-//check health of the API
-//it can run on custom port OR backup port
-async function CheckAPIHealth(baseURL) {
-    try {
-        const instance = axios.create({ baseURL });
-        const response = await instance.get("/");
-        console.log(`API health check response from ${baseURL} - `, response.status);
-        return true;
-    } catch (error) {
-        console.error(`API health check failed for ${baseURL} - `, error.message || error);
-        return false;
-    }
-}
-
-async function EnsureAPIHealth() {
-    const primaryURL = `${import.meta.env.VITE_API_URL}:${import.meta.env.VITE_API_PORT}`;
-    const backupURL = `${import.meta.env.VITE_API_URL}:${import.meta.env.VITE_API_PORT_BACKUP}`;
-
-    if (await CheckAPIHealth(primaryURL)) {
-        return axios.create({ baseURL: primaryURL });
-    }
-
-    if (await CheckAPIHealth(backupURL)) {
-        console.warn("Switched to backup API port");
-        return axios.create({ baseURL: backupURL });
-    }
-
-    console.error("Both API ports are down");
-    return null;
-}
-
-//create axios instance
-const instanceAPI = await EnsureAPIHealth();
-if (!instanceAPI) {
-    // Handle API being down
-    //just notify the user
-    // :)
-    isAPIDown = true;
-}
-
-// Create a list to hold the request queue
-const refreshAndRetryQueue = [];
-
-// Flag to prevent multiple token refresh requests
+// Flag to prevent multiple simultaneous refresh attempts
 let isRefreshing = false;
+let refreshSubscribers = [];
 
-// Interceptor to add token to requests
-instanceAPI.interceptors.request.use(
-    (config) => {
-        const token = localStorage.getItem("accessToken");
-        if (token) {
-            config.headers["Authorization"] = `Bearer ${token}`;
+// Add a request interceptor
+API_OBJ.interceptors.request.use(
+    async (config) => {
+        const accessToken = localStorage.getItem("accessToken");
+
+        if (accessToken) {
+            config.headers['Authorization'] = `Bearer ${accessToken}`;
         }
+
         return config;
     },
-    (error) => Promise.reject(error)
-);
-
-instanceAPI.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-        const originalRequest = error.config;
-
-        // Prevent infinite loops
-        originalRequest._retryCount = originalRequest._retryCount || 0;
-        if (originalRequest._retryCount >= 3) {
-            // Force logout after 3 failed refresh attempts
-            handleLocalStorageKill();
-            return Promise.reject(error);
-        }
-
-        if (error.response && error.response.status === 401) {
-            if (!isRefreshing) {
-                isRefreshing = true;
-                originalRequest._retryCount++;
-
-                try {
-                    // Refresh the access token using a separate API call
-                    const newAccessToken = await refreshTokenViaAPI();
-
-                    // Update local storage with new token
-                    localStorage.setItem("accessToken", newAccessToken);
-
-                    // Update the default headers with the new access token
-                    instanceAPI.defaults.headers.common[
-                        "Authorization"
-                    ] = `Bearer ${newAccessToken}`;
-
-                    // Retry all queued requests with the new token
-                    refreshAndRetryQueue.forEach(({ config, resolve }) => {
-                        instanceAPI
-                            .request({
-                                ...config,
-                                headers: {
-                                    ...config.headers,
-                                    Authorization: `Bearer ${newAccessToken}`,
-                                },
-                            })
-                            .then(resolve);
-                    });
-
-                    // Clear the queue
-                    refreshAndRetryQueue.length = 0;
-
-                    // Retry the original request
-                    return instanceAPI(originalRequest);
-                } catch (refreshError) {
-                    // If refresh fails, handle logout
-                    handleLocalStorageKill();
-                    return Promise.reject(refreshError);
-                } finally {
-                    isRefreshing = false;
-                }
-            }
-
-            // Add the original request to the queue
-            return new Promise((resolve) => {
-                refreshAndRetryQueue.push({ config: originalRequest, resolve });
-            });
-        }
-
-        // Return a Promise rejection for non-401 errors
+    (error) => {
         return Promise.reject(error);
     }
 );
 
-// Dedicated function to refresh token via API
-async function refreshTokenViaAPI() {
-    try {
-        // Retrieve the refresh token from storage
-        const refreshToken = localStorage.getItem("refreshToken");
+// Add a response interceptor
+API_OBJ.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+        const originalRequest = error.config;
 
-        // Make an API call to the refresh token endpoint
-        const response = await instanceAPI.post("/refresh", {
-            refreshToken: refreshToken,
-        });
-
-        // Extract the new access token from the response
-        const { accessToken } = response.data;
-
-        if (!accessToken) {
-            throw new Error("No access token received");
+        // Check for network errors or timeout
+        if (axios.isCancel(error) || error.code === 'ECONNABORTED') {
+            console.error('Request timeout or network error');
+            return Promise.reject(error);
         }
 
-        return accessToken;
-    } catch (error) {
-        console.error("Token refresh failed:", error);
-        throw error;
+        // If the error is due to an unauthorized request and we haven't already tried to refresh
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            // Prevent infinite refresh loops
+            if (originalRequest._refreshAttempted) {
+                // If refresh has already been attempted, force logout
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
+                localStorage.removeItem("username");
+                window.location.href = '/login';
+                return Promise.reject(error);
+            }
+
+            if (isRefreshing) {
+                // If a refresh is already in progress, wait for it
+                return new Promise((resolve, reject) => {
+                    refreshSubscribers.push({
+                        resolve: (newToken) => {
+                            originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+                            originalRequest._refreshAttempted = true;
+                            resolve(API_OBJ(originalRequest));
+                        },
+                        reject
+                    });
+                });
+            }
+
+            originalRequest._retry = true;
+            isRefreshing = true;
+
+            try {
+                const refreshToken = localStorage.getItem("refreshToken");
+                const username = localStorage.getItem("username");
+
+                // Call your backend refresh token endpoint with timeout
+                const response = await API_OBJ.post(`${routes.refreshToken}`, {
+                    refreshToken,
+                    username  // Pass username to ensure context
+                }, {
+                    timeout: 5000 // 5 seconds timeout for refresh
+                });
+
+                const {
+                    accessToken,
+                    refreshToken: newRefreshToken = refreshToken,
+                    username: returnedUsername = username
+                } = response.data;
+
+                // Update tokens in local storage - use existing values if not provided
+                localStorage.setItem("accessToken", accessToken);
+                localStorage.setItem("refreshToken", newRefreshToken);
+                localStorage.setItem("username", returnedUsername);
+
+                // Update original request with new token
+                originalRequest.headers['Authorization'] = `Bearer ${accessToken}`;
+                originalRequest._refreshAttempted = true;
+
+                // Resolve all waiting requests with new token
+                refreshSubscribers.forEach(({ resolve }) => resolve(accessToken));
+                refreshSubscribers = [];
+
+                return API_OBJ(originalRequest);
+            } catch (refreshError) {
+                console.error('Token refresh failed:', refreshError);
+
+                // Reject all waiting requests
+                refreshSubscribers.forEach(({ reject }) => reject(refreshError));
+                refreshSubscribers = [];
+
+                // Clear tokens and redirect to login
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
+                localStorage.removeItem("username");
+                window.location.href = '/login';
+
+                // Throw error to be caught by the caller
+                return Promise.reject(refreshError);
+            } finally {
+                isRefreshing = false;
+            }
+        }
+
+        return Promise.reject(error);
     }
-}
+);
 
-// Logout handling function
-function handleLocalStorageKill() {
-    // Clear tokens from local storage
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-}
-
-export default instanceAPI;
+export default API_OBJ;
